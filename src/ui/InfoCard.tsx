@@ -27,22 +27,34 @@ export function InfoCard() {
   let engineerRows: [string, string][] = []
   let actions: { label: string; onClick: () => void; danger?: boolean; primary?: boolean }[] = []
   let title: string = info.title
+  let simpleOverride: string | null = null
+  let factOverride: string | null = null
 
   const close = () => s.select(null)
 
   if (kind === 'server') {
     const srv = s.servers[rest]
     if (!srv) return null
+    const isGpu = srv.kind === 'gpu'
     title = `Server ${srv.id}`
+    subtitle = isGpu ? 'GPU / AI accelerator node' : info.techName
+    if (isGpu) {
+      simpleOverride =
+        'This is a GPU server — the kind that trains and runs AI models. It’s far more powerful than a normal server, but it also guzzles electricity and runs very hot.'
+      factOverride =
+        'A single rack of AI GPU servers can draw more power than an entire street of houses — which is why AI is reshaping how data centers are cooled and powered.'
+    }
     status = srv.status
+    const draw = srv.status === 'off' || srv.status === 'failed' ? 0 : (isGpu ? 400 + srv.workload * 16 : 180 + srv.workload * 3.2)
     engineerRows = [
       ['Hostname', srv.name],
       ['IP address', srv.ip],
+      ['Type', isGpu ? '8× GPU accelerator' : 'General-purpose CPU'],
       ['Rack / unit', `${srv.rackId} · U${srv.unit * 2}`],
-      ['CPU load', `${srv.workload.toFixed(0)}%`],
+      [isGpu ? 'GPU load' : 'CPU load', `${srv.workload.toFixed(0)}%`],
       ['Inlet temp', `${srv.temp.toFixed(1)}°C`],
-      ['Power draw', srv.status === 'off' || srv.status === 'failed' ? '0 W' : `${(180 + srv.workload * 3.2).toFixed(0)} W`],
-      ['Memory', '256 GB DDR5'],
+      ['Power draw', `${draw.toFixed(0)} W`],
+      ['Memory', isGpu ? '1.1 TB HBM3 + 2 TB DDR5' : '256 GB DDR5'],
       ['Storage', '2 × 3.84 TB NVMe'],
     ]
     if (srv.status === 'failed') {
@@ -139,6 +151,7 @@ export function InfoCard() {
     if (engineerRows.length === 0) engineerRows = [['—', 'No active alerts. All systems nominal.']]
     if (!s.mission || s.mission.complete) {
       actions.push({ label: '🚨 Start mission: The Overheating Rack', onClick: () => s.startMission(), primary: true })
+      actions.push({ label: '🌱 Start mission: Right-Size the Facility (energy)', onClick: () => s.startEnergyMission() })
     }
     if (s.alerts.length > 0) actions.push({ label: '✔ Acknowledge all alerts', onClick: () => s.ackAlerts() })
   } else if (kind === 'badge') {
@@ -170,7 +183,7 @@ export function InfoCard() {
           {status && <StatusPill status={status} />}
         </div>
         <div className="card-tech-name">{s.mode === 'engineer' ? info.techName : subtitle}</div>
-        <p className="card-simple">{s.mode === 'beginner' ? info.simple : info.purpose}</p>
+        <p className="card-simple">{s.mode === 'beginner' ? simpleOverride ?? info.simple : info.purpose}</p>
 
         {s.mode === 'engineer' && engineerRows.length > 0 && (
           <div className="card-table">
@@ -193,7 +206,7 @@ export function InfoCard() {
           </div>
         )}
 
-        <div className="card-fact">💡 {info.fact}</div>
+        <div className="card-fact">💡 {factOverride ?? info.fact}</div>
 
         {actions.length > 0 && (
           <div className="card-actions">

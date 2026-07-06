@@ -47,7 +47,9 @@ function ServerUnit({ serverId, y }: { serverId: string; y: number }) {
   })
 
   const thermal = view === 'thermal'
-  const bodyColor = thermal ? tempColor(srv.temp) : '#20242c'
+  const isGpu = srv.kind === 'gpu'
+  const bodyColor = thermal ? tempColor(srv.temp) : isGpu ? '#2a2030' : '#20242c'
+  const faceColor = thermal ? bodyColor : isGpu ? '#3a2c44' : '#2b3038'
 
   return (
     <group position={[0, y, 0]} userData={{ iid: `server:${serverId}` }}>
@@ -64,8 +66,15 @@ function ServerUnit({ serverId, y }: { serverId: string; y: number }) {
       {/* faceplate */}
       <mesh position={[0, 0, 0.53]} userData={{ iid: `server:${serverId}` }}>
         <boxGeometry args={[0.95, 0.2, 0.02]} />
-        <meshStandardMaterial color={thermal ? bodyColor : '#2b3038'} metalness={0.3} roughness={0.6} />
+        <meshStandardMaterial color={faceColor} metalness={0.3} roughness={0.6} />
       </mesh>
+      {/* GPU accent stripe */}
+      {isGpu && !thermal && (
+        <mesh position={[0.34, 0, 0.55]}>
+          <boxGeometry args={[0.16, 0.14, 0.01]} />
+          <meshStandardMaterial color="#111" emissive="#c04bff" emissiveIntensity={1.4} />
+        </mesh>
+      )}
       {/* status LED */}
       <mesh position={[-0.38, 0, 0.55]}>
         <boxGeometry args={[0.05, 0.05, 0.01]} />
