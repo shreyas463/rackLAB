@@ -1,8 +1,22 @@
 import { create } from 'zustand'
 import { RACK_POSITIONS } from './layout'
 import { sfx } from './audio'
+import {
+  ServerKind,
+  ServerStatus,
+  THERMAL,
+  approachTemp,
+  computePUE,
+  coolingPowered,
+  serverAmbient,
+  serverPowerDraw,
+  serversPowered as serversHavePower,
+  statusFromTemp,
+  stepPower,
+  thermalTarget,
+} from './sim/model'
 
-export type ServerStatus = 'online' | 'off' | 'warning' | 'critical' | 'failed'
+export type { ServerStatus, ServerKind } from './sim/model'
 
 export interface Server {
   id: string
@@ -10,6 +24,7 @@ export interface Server {
   unit: number
   name: string
   ip: string
+  kind: ServerKind
   status: ServerStatus
   workload: number // 0..100
   temp: number // °C
@@ -54,8 +69,14 @@ export const ACHIEVEMENTS: Record<string, { title: string; desc: string; icon: s
   'cooling-tech': { title: 'Cooling Technician', desc: 'Rescued an overheating rack by fixing the cooling.', icon: '❄️' },
   'power-restorer': { title: 'Power Restorer', desc: 'Brought the backup generator online during an outage.', icon: '⚡' },
   'request-follower': { title: 'Packet Chaser', desc: 'Followed a web request through the whole facility.', icon: '📦' },
+  'energy-saver': { title: 'Energy Saver', desc: 'Right-sized the facility and slashed its power bill.', icon: '🌱' },
   explorer: { title: 'Data Center Explorer', desc: 'Inspected 7 different kinds of equipment.', icon: '🧭' },
 }
+
+/** Energy-efficiency mission targets. */
+export const ENERGY_TARGET_KW = 16
+export const ENERGY_MIN_ONLINE = 18
+export const ENERGY_CONSOLIDATE_TO = 24
 
 let alertSeq = 1
 let toastSeq = 1
@@ -71,6 +92,9 @@ function buildInitialWorld() {
   let ipCounter = 10
   for (const r of RACK_POSITIONS) {
     const serverIds: string[] = []
+    // Rack B3 is a dense GPU/AI rack — hotter, thirstier, and the star of the
+    // energy-efficiency mission.
+    const isGpuRack = r.id === 'B3'
     for (let u = 1; u <= 6; u++) {
       const id = `${r.id}-${u}`
       serverIds.push(id)
@@ -78,14 +102,21 @@ function buildInitialWorld() {
         id,
         rackId: r.id,
         unit: u,
-        name: `srv-${r.id.toLowerCase()}-${u}`,
+        name: `${isGpuRack ? 'gpu' : 'srv'}-${r.id.toLowerCase()}-${u}`,
         ip: `10.40.${r.id.charCodeAt(1) - 48 + (r.id[0] === 'B' ? 3 : 0)}.${ipCounter++}`,
+        kind: isGpuRack ? 'gpu' : 'cpu',
         status: 'online',
         workload: 15 + Math.round(Math.random() * 45),
         temp: 34 + Math.random() * 6,
       }
     }
-    racks[r.id] = { id: r.id, name: `Rack ${r.id}`, doorOpen: false, serverIds, coolerId: r.coolerId }
+    racks[r.id] = {
+      id: r.id,
+      name: isGpuRack ? `Rack ${r.id} · GPU` : `Rack ${r.id}`,
+      doorOpen: false,
+      serverIds,
+      coolerId: r.coolerId,
+    }
   }
   // A couple of pre-baked stories to discover.
   servers['A3-4'].status = 'failed'
@@ -150,6 +181,7 @@ export interface State {
   scanBadge: () => void
   ackAlerts: () => void
   startMission: () => void
+  startEnergyMission: () => void
   abandonMission: () => void
 
   startRequestFlow: () => void
@@ -396,10 +428,44 @@ export const useStore = create<State>((set, get) => ({
     s.pushToast('🚨 Mission started: something in the hall is overheating. Find it and fix it!')
   },
 
+  startEnergyMission: () => {
+    const s = get()
+    if (s.mission && !s.mission.complete) return
+    // Simulate a busy, over-provisioned facility: everything running hot on load,
+    // the GPU/AI rack pinned near max. The power bill is enormous.
+    const servers = { ...s.servers }
+    for (const id of Object.keys(servers)) {
+      const srv = servers[id]
+      if (srv.status === 'off' || srv.status === 'failed') continue
+      const busy = srv.kind === 'gpu' ? 90 + Math.random() * 10 : 55 + Math.random() * 35
+      servers[id] = { ...srv, workload: busy }
+    }
+    set({
+      servers,
+      alerts: pushAlertList(
+        s.alerts,
+        `MISSION: facility drawing too much power — target under ${ENERGY_TARGET_KW} kW`,
+        'warning',
+      ),
+      mission: {
+        id: 'energy',
+        title: 'Mission: Right-Size the Facility',
+        steps: [
+          { text: 'Switch to Engineer mode to read live power (kW) and PUE', done: false },
+          { text: `Consolidate: power down underused servers (get to ${ENERGY_CONSOLIDATE_TO} or fewer online)`, done: false },
+          { text: `Cut total facility power below ${ENERGY_TARGET_KW} kW (hint: the GPU/AI rack dominates the bill)`, done: false },
+          { text: `Hold the line: keep at least ${ENERGY_MIN_ONLINE} servers online with nothing overheating`, done: false },
+        ],
+        complete: false,
+      },
+    })
+    s.pushToast('🌱 Mission started: the power bill is out of control. Consolidate workloads and shut down what you don’t need.')
+  },
+
   abandonMission: () => {
     const s = get()
     if (!s.mission) return
-    if (s.cooling['CU-2'].status === 'failed') s.setCoolingStatus('CU-2', 'running')
+    if (s.mission.id === 'overheat' && s.cooling['CU-2'].status === 'failed') s.setCoolingStatus('CU-2', 'running')
     set({ mission: null })
   },
 
@@ -445,50 +511,33 @@ export const useStore = create<State>((set, get) => ({
     if (s.phase !== 'exploring') return
 
     let alerts = s.alerts
-    const power = { ...s.power }
 
-    // --- Power chain ---
-    if (!power.grid) {
-      if (power.gen === 'starting') {
-        power.genTimer = Math.max(0, power.genTimer - dt)
-        if (power.genTimer === 0) {
-          power.gen = 'running'
-          alerts = pushAlertList(alerts, 'Generator ONLINE — facility running on backup power', 'info')
-          get().unlock('power-restorer')
-          sfx.success()
-        }
-      }
-      if (power.gen !== 'running') {
-        const before = power.ups
-        power.ups = Math.max(0, power.ups - dt * (100 / 75)) // ~75s of runtime
-        if (before > 20 && power.ups <= 20) {
-          alerts = pushAlertList(alerts, 'UPS batteries below 20% — start the generator NOW', 'critical')
-        }
-        if (before > 0 && power.ups === 0) {
-          alerts = pushAlertList(alerts, 'UPS DEPLETED — total power loss. Servers down.', 'critical')
-          sfx.powerDown()
-        }
-      }
-    } else {
-      power.ups = Math.min(100, power.ups + dt * 1.5)
+    // --- Power chain (pure model) ---
+    const powerStep = stepPower(s.power, dt)
+    const power = powerStep.power
+    for (const ev of powerStep.events) alerts = pushAlertList(alerts, ev.text, ev.severity)
+    if (powerStep.genJustStarted) {
+      get().unlock('power-restorer')
+      sfx.success()
     }
+    if (powerStep.upsJustDepleted) sfx.powerDown()
 
-    const serversPowered = power.grid || power.gen === 'running' || power.ups > 0
-    const coolingPowered = power.grid || power.gen === 'running' // UPS doesn't back cooling!
+    const haveServerPower = serversHavePower(power)
+    const haveCoolingPower = coolingPowered(power)
+    const coolerRunning = (cid: string) => haveCoolingPower && s.cooling[cid]?.status === 'running'
 
-    const coolerRunning = (cid: string) => coolingPowered && s.cooling[cid]?.status === 'running'
-
-    // --- Servers: workload drift + thermal model ---
+    // --- Servers: workload drift + thermal model (pure model) ---
     const servers: Record<string, Server> = {}
     let anyCritical = false
     for (const id of Object.keys(s.servers)) {
       const srv = { ...s.servers[id] }
       const rack = s.racks[srv.rackId]
-      const myCooler = coolerRunning(rack.coolerId)
-      const otherCooler = coolerRunning(rack.coolerId === 'CU-1' ? 'CU-2' : 'CU-1')
-      const ambient = 22 + (myCooler ? 0 : 14) + (otherCooler ? 0 : 5)
+      const ambient = serverAmbient(
+        coolerRunning(rack.coolerId),
+        coolerRunning(rack.coolerId === 'CU-1' ? 'CU-2' : 'CU-1'),
+      )
 
-      const powered = serversPowered && srv.status !== 'off' && srv.status !== 'failed'
+      const powered = haveServerPower && srv.status !== 'off' && srv.status !== 'failed'
       if (powered) {
         // gentle workload random walk (missions may pin it high)
         srv.workload = Math.min(100, Math.max(4, srv.workload + (Math.random() - 0.5) * 6 * dt))
@@ -496,26 +545,18 @@ export const useStore = create<State>((set, get) => ({
         srv.workload = 0
       }
 
-      const target = powered ? ambient + 7 + srv.workload * 0.24 : Math.min(srv.temp, ambient + 2)
-      srv.temp += (target - srv.temp) * Math.min(1, dt * 0.11)
+      srv.temp = approachTemp(srv.temp, thermalTarget(powered, ambient, srv.workload, srv.kind, srv.temp), dt)
 
       if (powered) {
         const prev = srv.status
-        if (srv.temp >= 85) {
-          srv.status = 'failed'
+        srv.status = statusFromTemp(srv.temp)
+        if (srv.status === 'failed') {
           srv.workload = 0
           alerts = pushAlertList(alerts, `Server ${id} THERMAL SHUTDOWN at ${srv.temp.toFixed(0)}°C`, 'critical')
-        } else if (srv.temp >= 66) {
-          srv.status = 'critical'
-          if (prev !== 'critical') {
-            alerts = pushAlertList(alerts, `Server ${id} critical temperature ${srv.temp.toFixed(0)}°C`, 'critical')
-          }
-        } else if (srv.temp >= 54) {
-          srv.status = 'warning'
-        } else {
-          srv.status = 'online'
+        } else if (srv.status === 'critical' && prev !== 'critical') {
+          alerts = pushAlertList(alerts, `Server ${id} critical temperature ${srv.temp.toFixed(0)}°C`, 'critical')
         }
-      } else if (!serversPowered && srv.status !== 'off' && srv.status !== 'failed') {
+      } else if (!haveServerPower && srv.status !== 'off' && srv.status !== 'failed') {
         srv.status = 'off'
       }
       if (srv.status === 'critical') anyCritical = true
@@ -549,6 +590,29 @@ export const useStore = create<State>((set, get) => ({
           if (servers[sid].workload > 60) servers[sid] = { ...servers[sid], workload: 35 }
         }
       }
+    } else if (mission && mission.id === 'energy' && !mission.complete) {
+      // Evaluate against the freshly-simulated server set.
+      const live = Object.values(servers)
+      const onlineCount = live.filter((x) => x.status === 'online' || x.status === 'warning' || x.status === 'critical').length
+      const itKw = live.reduce((a, b) => a + serverPowerDraw(b.status, b.workload, b.kind) / 1000, 0)
+      const coolingKw = Object.values(s.cooling).filter((c) => c.status === 'running').length * 2.4
+      const totalKw = itKw + coolingKw + 1.1
+      // "Overheating" means genuinely hot — a cold, pre-failed hardware unit
+      // (e.g. A3-4) must not block completion.
+      const anyOverheating = live.some((x) => x.status !== 'off' && x.temp >= THERMAL.warnAt)
+
+      const steps = mission.steps.map((st) => ({ ...st }))
+      if (!steps[0].done && s.mode === 'engineer') steps[0].done = true
+      if (!steps[1].done && onlineCount <= ENERGY_CONSOLIDATE_TO) steps[1].done = true
+      if (!steps[2].done && totalKw < ENERGY_TARGET_KW) steps[2].done = true
+      steps[3].done = steps[2].done && onlineCount >= ENERGY_MIN_ONLINE && !anyOverheating
+      const complete = steps.every((st) => st.done)
+      const wasComplete = mission.complete
+      mission = { ...mission, steps, complete }
+      if (complete && !wasComplete) {
+        get().unlock('energy-saver')
+        get().pushToast(`✅ Mission complete! Facility down to ${totalKw.toFixed(1)} kW with ${onlineCount} servers still serving.`)
+      }
     }
 
     // --- Alarm sound ---
@@ -576,8 +640,8 @@ export function facilityStats(s: State) {
   const all = Object.values(s.servers)
   const online = all.filter((x) => x.status === 'online' || x.status === 'warning' || x.status === 'critical')
   const avgTemp = all.reduce((a, b) => a + b.temp, 0) / all.length
-  const itPowerKw = online.reduce((a, b) => a + 0.18 + (b.workload / 100) * 0.32, 0)
+  const itPowerKw = all.reduce((a, b) => a + serverPowerDraw(b.status, b.workload, b.kind) / 1000, 0)
   const coolingKw = Object.values(s.cooling).filter((c) => c.status === 'running').length * 2.4
-  const pue = itPowerKw > 0 ? (itPowerKw + coolingKw + 1.1) / itPowerKw : 0
+  const pue = computePUE(itPowerKw, coolingKw)
   return { online: online.length, total: all.length, avgTemp, itPowerKw, coolingKw, pue }
 }
