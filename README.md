@@ -10,6 +10,8 @@ learn how the cloud physically works along the way.
 
 **No backend. No install beyond `npm`. The whole simulation runs in your browser.**
 
+### ▶︎ [**Play it live**](https://shreyas463.github.io/rackLAB/)
+
 `Vite` · `React` · `TypeScript` · `Three.js` · `React Three Fiber` · `Zustand`
 
 <br>
