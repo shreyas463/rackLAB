@@ -12,6 +12,13 @@ learn how the cloud physically works along the way.
 
 `Vite` · `React` · `TypeScript` · `Three.js` · `React Three Fiber` · `Zustand`
 
+<br>
+
+![RackLab — walking the server hall and switching to thermal view](docs/media/demo.gif)
+
+<sub>Walking the server hall, then flipping to thermal view — the racks glow by
+temperature and the NOC dashboards track the heat in real time.</sub>
+
 </div>
 
 ---

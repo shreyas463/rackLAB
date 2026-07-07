@@ -123,7 +123,7 @@ export function RackMesh({ id, x, z, rotY }: { id: string; x: number; z: number;
       doorRef.current.rotation.y += (target - doorRef.current.rotation.y) * Math.min(1, dt * 6)
     }
     if (overlayRef.current) {
-      overlayRef.current.opacity = view === 'thermal' ? 0.35 : 0
+      overlayRef.current.opacity = view === 'thermal' ? 0.62 : 0
       overlayRef.current.color.set(tempColor(avgTempRef.current))
       overlayRef.current.emissive.set(tempColor(avgTempRef.current))
     }
@@ -166,7 +166,7 @@ export function RackMesh({ id, x, z, rotY }: { id: string; x: number; z: number;
       {/* thermal overlay shell */}
       <mesh position={[0, FRAME_H / 2, 0]}>
         <boxGeometry args={[FRAME_W + 0.06, FRAME_H + 0.06, FRAME_D + 0.06]} />
-        <meshStandardMaterial ref={overlayRef} transparent opacity={0} emissiveIntensity={0.9} depthWrite={false} />
+        <meshStandardMaterial ref={overlayRef} transparent opacity={0} emissiveIntensity={1.5} depthWrite={false} />
       </mesh>
       {/* label plate */}
       <mesh position={[0, FRAME_H + 0.001, 0.4]} rotation={[-Math.PI / 2.6, 0, 0]}>

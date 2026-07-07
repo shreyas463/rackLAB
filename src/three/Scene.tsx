@@ -37,7 +37,7 @@ export function Scene() {
   const view = useStore((s) => s.view)
   return (
     <Canvas
-      gl={{ antialias: true, powerPreference: 'high-performance' }}
+      gl={{ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true }}
       dpr={[1, 1.75]}
       onCreated={({ gl, scene }) => {
         gl.setClearColor(view === 'thermal' ? '#05070c' : '#0a0e14')
