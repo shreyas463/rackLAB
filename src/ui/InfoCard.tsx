@@ -1,5 +1,6 @@
 import { useStore } from '../store'
 import { EQUIP_INFO } from '../data'
+import { serverPowerDraw } from '../sim/model'
 
 function StatusPill({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -25,7 +26,7 @@ export function InfoCard() {
   let subtitle = info.techName
   let status: string | null = null
   let engineerRows: [string, string][] = []
-  let actions: { label: string; onClick: () => void; danger?: boolean; primary?: boolean }[] = []
+  const actions: { label: string; onClick: () => void; danger?: boolean; primary?: boolean }[] = []
   let title: string = info.title
   let simpleOverride: string | null = null
   let factOverride: string | null = null
@@ -45,7 +46,7 @@ export function InfoCard() {
         'A single rack of AI GPU servers can draw more power than an entire street of houses — which is why AI is reshaping how data centers are cooled and powered.'
     }
     status = srv.status
-    const draw = srv.status === 'off' || srv.status === 'failed' ? 0 : (isGpu ? 400 + srv.workload * 16 : 180 + srv.workload * 3.2)
+    const draw = serverPowerDraw(srv.status, srv.workload, srv.kind)
     engineerRows = [
       ['Hostname', srv.name],
       ['IP address', srv.ip],
@@ -137,10 +138,13 @@ export function InfoCard() {
     }
   } else if (kind === 'netcab') {
     status = 'online'
+    // Traffic tracks the live workload across the hall, so the readout moves
+    // with the simulation instead of jittering randomly.
+    const load = Object.values(s.servers).reduce((a, b) => a + b.workload, 0)
     engineerRows = [
       ['Uplink', '2 × 100 Gbit/s fiber (diverse paths)'],
       ['Core switches', '4 × 48-port'],
-      ['Traffic', `${(2.4 + Math.random() * 3).toFixed(1)} Gbit/s`],
+      ['Traffic', `${(0.4 + load / 320).toFixed(1)} Gbit/s`],
       ['Packet loss', '0.00%'],
       ['Connected servers', '36'],
     ]
@@ -185,6 +189,9 @@ export function InfoCard() {
         <div className="card-tech-name">{s.mode === 'engineer' ? info.techName : subtitle}</div>
         <p className="card-simple">{s.mode === 'beginner' ? simpleOverride ?? info.simple : info.purpose}</p>
 
+        {s.mode === 'engineer' && engineerRows.length > 0 && (
+          <div className="card-section-label">{kind === 'noc' ? 'Recent alerts' : 'Live telemetry'}</div>
+        )}
         {s.mode === 'engineer' && engineerRows.length > 0 && (
           <div className="card-table">
             {engineerRows.map(([k, v]) => (

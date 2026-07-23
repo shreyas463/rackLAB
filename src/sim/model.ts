@@ -85,13 +85,42 @@ export function serverPowerDraw(status: ServerStatus, workload: number, kind: Se
   return spec.idleW + (Math.max(0, Math.min(100, workload)) / 100) * spec.peakExtraW
 }
 
+/** Facility-level electrical overheads. */
+export const FACILITY = {
+  /** electrical draw of one running CRAC unit, in kW */
+  coolingKwPerUnit: 2.4,
+  /** lighting, network gear, losses — everything that isn't IT or cooling */
+  overheadKw: 1.1,
+} as const
+
 /**
  * Power Usage Effectiveness: total facility power / IT power. 1.0 is a perfect
  * (impossible) data center; hyperscalers run ~1.1, older facilities ~2.0.
  */
-export function computePUE(itKw: number, coolingKw: number, overheadKw = 1.1): number {
+export function computePUE(itKw: number, coolingKw: number, overheadKw: number = FACILITY.overheadKw): number {
   if (itKw <= 0) return 0
   return (itKw + coolingKw + overheadKw) / itKw
+}
+
+export interface FacilityPower {
+  itKw: number
+  coolingKw: number
+  totalKw: number
+  pue: number
+}
+
+/**
+ * Aggregate electrical picture of the whole facility. The single source of
+ * truth for every kW figure shown in the UI and judged by missions.
+ */
+export function facilityPower(
+  servers: Iterable<{ status: ServerStatus; workload: number; kind: ServerKind }>,
+  runningCoolers: number,
+): FacilityPower {
+  let itKw = 0
+  for (const s of servers) itKw += serverPowerDraw(s.status, s.workload, s.kind) / 1000
+  const coolingKw = runningCoolers * FACILITY.coolingKwPerUnit
+  return { itKw, coolingKw, totalKw: itKw + coolingKw + FACILITY.overheadKw, pue: computePUE(itKw, coolingKw) }
 }
 
 export interface PowerState {
