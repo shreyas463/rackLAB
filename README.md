@@ -21,10 +21,11 @@ learn how the cloud physically works along the way.
 
 <br>
 
-![RackLab — walking the server hall and switching to thermal view](docs/media/demo.gif)
+![RackLab — badging into the server hall, then inspecting a GPU node in thermal view](docs/media/demo.gif)
 
-<sub>Walking the server hall, then flipping to thermal view — the racks glow by
-temperature and the NOC dashboards track the heat in real time.</sub>
+<sub>Badging in at the lobby kiosk, walking into the server hall, then flipping
+to thermal view — the GPU/AI rack glows hot under a training job while the live
+telemetry panel tracks its 1.9 kW draw and rising inlet temperature.</sub>
 
 </div>
 
