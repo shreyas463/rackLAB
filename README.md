@@ -163,7 +163,8 @@ The parts of this project I'd want a reviewer to look at:
   (thermals, the power chain, PUE, per-server electrical draw) live in
   [`src/sim/model.ts`](src/sim/model.ts) with zero framework imports — one
   source of truth consumed by the HUD, the 3D scene, the info cards, and the
-  mission logic alike, covered by 38 tests.
+  mission logic alike, covered by 27 unit tests — with 11 more driving the
+  store's gameplay orchestration on top of it.
 - **78% smaller initial payload via code-splitting.** The three.js/R3F world
   (~830 kB) is lazy-loaded behind the landing page, which ships as a **64 kB
   gzip** entry chunk and prefetches the 3D bundle while the visitor reads the
