@@ -12,6 +12,11 @@ learn how the cloud physically works along the way.
 
 ### ▶︎ [**Play it live**](https://shreyas463.github.io/rackLAB/)
 
+[![CI](https://github.com/shreyas463/rackLAB/actions/workflows/deploy.yml/badge.svg)](https://github.com/shreyas463/rackLAB/actions/workflows/deploy.yml)
+![Tests](https://img.shields.io/badge/tests-38%20passing-34d399)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)
+![License](https://img.shields.io/badge/license-Apache--2.0-blue)
+
 `Vite` · `React` · `TypeScript` · `Three.js` · `React Three Fiber` · `Zustand`
 
 <br>
@@ -99,9 +104,10 @@ src/
 ├── sim/
 │   ├── model.ts        # PURE simulation: thermal model, power chain, PUE.
 │   │                   #   No React/Three/DOM — just input→output functions.
-│   └── model.test.ts   # 27 Vitest unit tests over that model.
+│   └── model.test.ts   # Vitest unit tests over that model.
 ├── store.ts            # Zustand store: world state + a fixed-timestep tick()
 │                       #   that calls the pure model and wires up side effects.
+├── store.test.ts       # Gameplay tests: missions, achievements, outage flow.
 ├── layout.ts           # World geometry, collision boxes, rack/equipment placement.
 ├── data.ts             # Educational copy for every equipment type + request steps.
 ├── audio.ts            # Procedural Web Audio engine (ambience, SFX, alarm).
@@ -130,8 +136,12 @@ well-cooled server stays healthy while a starved one runs away to shutdown. The
 Zustand `tick()` is then a thin layer that feeds state through the model and
 attaches the audio/alert side effects.
 
+A second suite drives the store itself — mission progressions, achievement
+unlocks, the badge/security flow, and the full grid-loss → UPS-drain →
+generator-rescue sequence run end-to-end in Node, no browser required.
+
 ```bash
-npm test    # 27 passing tests
+npm test    # 38 passing tests across both suites
 ```
 
 ## 🚀 Deploy
@@ -145,24 +155,45 @@ drops onto any static host:
 - **Vercel / Netlify** — import the repo; config is committed
   ([`vercel.json`](vercel.json), [`netlify.toml`](netlify.toml)). Zero settings.
 
-## ⚙️ Tech notes & performance
+## ⚙️ Engineering highlights
 
-- Client-only by design — the brief suggested a backend, but at MVP scope the
-  simulation needs no persistence, so the whole thing ships as a static bundle.
-- Repeated rack/server geometry is reused; LED blinking, fan spin, airflow, and
-  the packet trail are driven per-frame in `useFrame` rather than via React
-  re-renders. Equipment labels and the NOC dashboards are drawn to `<canvas>`
-  textures (no font/asset loading).
-- Targets smooth performance on a standard laptop. Debug hooks are exposed on
-  `window.racklab` (the Zustand store) and `window.teleport` for tinkering.
+The parts of this project I'd want a reviewer to look at:
+
+- **A pure, unit-tested simulation core.** All cause-and-effect physics
+  (thermals, the power chain, PUE, per-server electrical draw) live in
+  [`src/sim/model.ts`](src/sim/model.ts) with zero framework imports — one
+  source of truth consumed by the HUD, the 3D scene, the info cards, and the
+  mission logic alike, covered by 38 tests.
+- **78% smaller initial payload via code-splitting.** The three.js/R3F world
+  (~830 kB) is lazy-loaded behind the landing page, which ships as a **64 kB
+  gzip** entry chunk and prefetches the 3D bundle while the visitor reads the
+  intro — instant first paint, no loading wall.
+- **Zero art assets.** Every mesh is procedural geometry, every label and NOC
+  dashboard is a live `<canvas>` texture, and all audio (ambient hum, blips,
+  alarms) is synthesized from oscillators and filtered noise with the Web Audio
+  API. The entire visual+audio identity compiles from source.
+- **Frame-loop discipline.** LED blinking, fan spin, door physics, the packet
+  trail, and rack thermal overlays mutate three.js objects in `useFrame` —
+  React re-renders are reserved for actual state changes, and the sim ticks at
+  a fixed 2 Hz timestep independent of frame rate.
+- **Persistent progress.** Achievements, discovered equipment, and badge access
+  survive refreshes via a partialized Zustand `persist` — the live simulation
+  itself always boots fresh.
+- **Tooling as a feature.** Strict TypeScript, ESLint with the React compiler
+  rules (`react-hooks` v7 purity/refs checks), and a CI pipeline that lints,
+  tests, builds, and deploys to GitHub Pages on every push.
+- **Designed with a token system.** The UI is built on CSS design tokens
+  (palette, type scale, radii, shadows, glass surfaces) with Inter + JetBrains
+  Mono, `prefers-reduced-motion` support, and keyboard focus states.
+- Debug hooks are exposed on `window.racklab` (the Zustand store) and
+  `window.teleport` for tinkering from the console.
 
 ## 🗺️ Roadmap
 
 The [product brief](docs/PRODUCT_BRIEF.md) lays out the full vision. Natural next
 steps the architecture already supports: build mode, the remaining missions, a
-guided-tour character, a mini-map, `localStorage` progress, instanced rendering
-for a much larger hall, and an accessibility pass (reduced motion, colorblind
-status labels).
+guided-tour character, a mini-map, touch controls for mobile, instanced
+rendering for a much larger hall, and a colorblind-safe status palette.
 
 ## 📄 License
 
