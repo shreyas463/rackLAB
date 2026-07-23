@@ -29,7 +29,11 @@ function ServerUnit({ serverId, y }: { serverId: string; y: number }) {
   const view = useStore((s) => s.view)
   const ledRef = useRef<THREE.MeshStandardMaterial>(null)
   const actRef = useRef<THREE.MeshStandardMaterial>(null)
-  const phase = useMemo(() => Math.random() * 10, [])
+  // Deterministic per-server phase so LED blink patterns are desynchronized.
+  const phase = useMemo(
+    () => [...serverId].reduce((a, c) => a + c.charCodeAt(0) * 7, 0) % 10,
+    [serverId],
+  )
 
   useFrame(({ clock }) => {
     const t = clock.elapsedTime + phase
@@ -100,9 +104,7 @@ export function RackMesh({ id, x, z, rotY }: { id: string; x: number; z: number;
   const rack = useStore((s) => s.racks[id])
   const view = useStore((s) => s.view)
   const doorRef = useRef<THREE.Group>(null)
-  const avgTempRef = useRef(36)
   const overlayRef = useRef<THREE.MeshStandardMaterial>(null)
-  const servers = useStore((s) => s.servers)
 
   const labelTex = useMemo(
     () =>
@@ -113,19 +115,19 @@ export function RackMesh({ id, x, z, rotY }: { id: string; x: number; z: number;
     [id],
   )
 
-  const temps = rack.serverIds.map((sid) => servers[sid].temp)
-  const avg = temps.reduce((a, b) => a + b, 0) / temps.length
-  avgTempRef.current = avg
-
   useFrame((_, dt) => {
     if (doorRef.current) {
       const target = rack.doorOpen ? -1.9 : 0
       doorRef.current.rotation.y += (target - doorRef.current.rotation.y) * Math.min(1, dt * 6)
     }
     if (overlayRef.current) {
+      // Average rack temperature is read imperatively here rather than
+      // subscribed to, so the whole rack doesn't re-render every sim tick.
+      const servers = useStore.getState().servers
+      const avg = rack.serverIds.reduce((a, sid) => a + servers[sid].temp, 0) / rack.serverIds.length
       overlayRef.current.opacity = view === 'thermal' ? 0.62 : 0
-      overlayRef.current.color.set(tempColor(avgTempRef.current))
-      overlayRef.current.emissive.set(tempColor(avgTempRef.current))
+      overlayRef.current.color.set(tempColor(avg))
+      overlayRef.current.emissive.set(tempColor(avg))
     }
   })
 

@@ -86,12 +86,13 @@ export function Player() {
     const s = useStore.getState()
 
     // Debug/console teleport: window.teleport = { x, z, yaw?, pitch? }
-    const tp = (window as unknown as Record<string, any>).teleport
+    const w = window as unknown as { teleport?: { x: number; z: number; yaw?: number; pitch?: number } | null }
+    const tp = w.teleport
     if (tp) {
       pos.current.set(tp.x, PLAYER.height, tp.z)
       if (typeof tp.yaw === 'number') yaw.current = tp.yaw
       if (typeof tp.pitch === 'number') pitch.current = tp.pitch
-      ;(window as unknown as Record<string, any>).teleport = null
+      w.teleport = null
     }
 
     camera.rotation.set(pitch.current, yaw.current, 0, 'YXZ')

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { createJSONStorage, persist } from 'zustand/middleware'
 import { RACK_POSITIONS } from './layout'
 import { sfx } from './audio'
 import {
@@ -6,10 +7,9 @@ import {
   ServerStatus,
   THERMAL,
   approachTemp,
-  computePUE,
   coolingPowered,
+  facilityPower,
   serverAmbient,
-  serverPowerDraw,
   serversPowered as serversHavePower,
   statusFromTemp,
   stepPower,
@@ -194,6 +194,8 @@ export interface State {
   dismissToast: (id: number) => void
   unlock: (id: string) => void
   tick: (dt: number) => void
+  /** Rebuild the world from scratch (used by tests and the debug console). */
+  resetWorld: () => void
 }
 
 function pushAlertList(alerts: Alert[], text: string, severity: Alert['severity']): Alert[] {
@@ -201,7 +203,9 @@ function pushAlertList(alerts: Alert[], text: string, severity: Alert['severity'
   return next.slice(0, 8)
 }
 
-export const useStore = create<State>((set, get) => ({
+export const useStore = create<State>()(
+  persist(
+    (set, get) => ({
   phase: 'landing',
   mode: 'beginner',
   view: 'normal',
@@ -233,6 +237,7 @@ export const useStore = create<State>((set, get) => ({
 
   enter: () => {
     sfx.start()
+    sfx.setMuted(get().muted)
     set({ phase: 'exploring' })
   },
   setMode: (mode) => {
@@ -281,7 +286,7 @@ export const useStore = create<State>((set, get) => ({
       if (discovered.length >= 7) s.unlock('explorer')
     }
     set({ selectedId: id })
-    document.exitPointerLock?.()
+    if (typeof document !== 'undefined') document.exitPointerLock?.()
   },
 
   toggleRackDoor: (rackId) => {
@@ -594,9 +599,8 @@ export const useStore = create<State>((set, get) => ({
       // Evaluate against the freshly-simulated server set.
       const live = Object.values(servers)
       const onlineCount = live.filter((x) => x.status === 'online' || x.status === 'warning' || x.status === 'critical').length
-      const itKw = live.reduce((a, b) => a + serverPowerDraw(b.status, b.workload, b.kind) / 1000, 0)
-      const coolingKw = Object.values(s.cooling).filter((c) => c.status === 'running').length * 2.4
-      const totalKw = itKw + coolingKw + 1.1
+      const running = Object.values(s.cooling).filter((c) => c.status === 'running').length
+      const { totalKw } = facilityPower(live, running)
       // "Overheating" means genuinely hot — a cold, pre-failed hardware unit
       // (e.g. A3-4) must not block completion.
       const anyOverheating = live.some((x) => x.status !== 'off' && x.temp >= THERMAL.warnAt)
@@ -622,7 +626,49 @@ export const useStore = create<State>((set, get) => ({
 
     set({ servers, power, alerts, mission })
   },
-}))
+
+  resetWorld: () => {
+    set({
+      ...buildInitialWorld(),
+      cooling: {
+        'CU-1': { id: 'CU-1', name: 'Cooling Unit CU-1', status: 'running', fanSpeed: 1450 },
+        'CU-2': { id: 'CU-2', name: 'Cooling Unit CU-2', status: 'running', fanSpeed: 1450 },
+      },
+      power: { grid: true, ups: 100, gen: 'off', genTimer: 0 },
+      badgeScanned: false,
+      secDoorOpen: false,
+      alerts: [],
+      toasts: [],
+      achievements: [],
+      discovered: [],
+      mission: null,
+      selectedId: null,
+      hoveredId: null,
+      requestFlow: { active: false, playing: false, speed: 1, step: -1, nonce: 0 },
+    })
+  },
+    }),
+    {
+      name: 'racklab-progress',
+      // In-memory fallback keeps the store usable in tests / SSR-ish contexts.
+      storage: createJSONStorage(() =>
+        typeof localStorage !== 'undefined'
+          ? localStorage
+          : { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+      ),
+      // Only long-lived player progress is persisted — the live simulation
+      // (temps, power, missions) always starts fresh.
+      partialize: (s) => ({
+        achievements: s.achievements,
+        discovered: s.discovered,
+        badgeScanned: s.badgeScanned,
+        secDoorOpen: s.secDoorOpen,
+        mode: s.mode,
+        muted: s.muted,
+      }),
+    },
+  ),
+)
 
 // Console access for tinkering: window.racklab.getState().cutGrid(), etc.
 if (typeof window !== 'undefined') {
@@ -640,8 +686,7 @@ export function facilityStats(s: State) {
   const all = Object.values(s.servers)
   const online = all.filter((x) => x.status === 'online' || x.status === 'warning' || x.status === 'critical')
   const avgTemp = all.reduce((a, b) => a + b.temp, 0) / all.length
-  const itPowerKw = all.reduce((a, b) => a + serverPowerDraw(b.status, b.workload, b.kind) / 1000, 0)
-  const coolingKw = Object.values(s.cooling).filter((c) => c.status === 'running').length * 2.4
-  const pue = computePUE(itPowerKw, coolingKw)
-  return { online: online.length, total: all.length, avgTemp, itPowerKw, coolingKw, pue }
+  const running = Object.values(s.cooling).filter((c) => c.status === 'running').length
+  const { itKw, coolingKw, pue } = facilityPower(all, running)
+  return { online: online.length, total: all.length, avgTemp, itPowerKw: itKw, coolingKw, pue }
 }

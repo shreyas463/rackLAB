@@ -1,12 +1,22 @@
-import { useEffect } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 import { useStore } from './store'
-import { Scene } from './three/Scene'
 import { Landing } from './ui/Landing'
 import { HUD } from './ui/HUD'
 import { InfoCard } from './ui/InfoCard'
 
+// The 3D world (three.js + R3F, ~1 MB) is split out of the entry chunk so the
+// landing page paints instantly; the import below starts the download in the
+// background while the visitor reads the intro.
+const Scene = lazy(() => import('./three/Scene').then((m) => ({ default: m.Scene })))
+const preloadScene = () => import('./three/Scene')
+
 export default function App() {
   const phase = useStore((s) => s.phase)
+
+  // Warm the 3D chunk while the landing page is on screen.
+  useEffect(() => {
+    preloadScene()
+  }, [])
 
   // Simulation heartbeat.
   useEffect(() => {
@@ -31,7 +41,9 @@ export default function App() {
 
   return (
     <div className="app-3d">
-      <Scene />
+      <Suspense fallback={<div className="scene-loading">Powering up the facility…</div>}>
+        <Scene />
+      </Suspense>
       <HUD />
       <InfoCard />
     </div>

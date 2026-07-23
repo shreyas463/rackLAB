@@ -38,9 +38,14 @@ export function RequestFlow() {
     return c
   }, [])
 
-  const lineGeo = useMemo(() => {
-    const pts = curve.getPoints(300)
-    return new THREE.BufferGeometry().setFromPoints(pts)
+  const pathLine = useMemo(() => {
+    const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(300))
+    const line = new THREE.Line(
+      geo,
+      new THREE.LineDashedMaterial({ color: '#38bdf8', transparent: true, opacity: 0.35, dashSize: 0.3, gapSize: 0.2 }),
+    )
+    line.computeLineDistances()
+    return line
   }, [curve])
 
   useEffect(() => {
@@ -88,15 +93,7 @@ export function RequestFlow() {
   return (
     <group>
       {/* the full path, faintly visible */}
-      <primitive
-        object={
-          new THREE.Line(
-            lineGeo,
-            new THREE.LineDashedMaterial({ color: '#38bdf8', transparent: true, opacity: 0.35, dashSize: 0.3, gapSize: 0.2 }),
-          )
-        }
-        onUpdate={(line: THREE.Line) => line.computeLineDistances()}
-      />
+      <primitive object={pathLine} />
       {/* the packet */}
       <group ref={packetRef}>
         <mesh>

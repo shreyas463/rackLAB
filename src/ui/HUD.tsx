@@ -34,7 +34,10 @@ export function HUD() {
 
       {/* top-left: facility status */}
       <div className="panel status-panel">
-        <div className="panel-title">RACKLAB DC-01</div>
+        <div className="panel-title">
+          <span className="live-dot" />
+          RACKLAB DC-01
+        </div>
         <div className="stat-row">
           <span>Power</span>
           <span className={s.power.grid ? 'text-ok' : s.power.gen === 'running' ? 'text-warn' : 'text-bad'}>
@@ -84,7 +87,7 @@ export function HUD() {
       {/* top-right: toggles */}
       <div className="panel toggles">
         <button
-          className={`tgl ${s.mode === 'beginner' ? 'active' : ''}`}
+          className={`tgl ${s.mode === 'engineer' ? 'active' : ''}`}
           onClick={() => s.setMode(s.mode === 'beginner' ? 'engineer' : 'beginner')}
           title="Switch between simple and technical explanations"
         >
@@ -97,13 +100,22 @@ export function HUD() {
         >
           {s.view === 'thermal' ? '🌡 Thermal' : '👁 Normal'}
         </button>
-        <button className="tgl" onClick={() => s.toggleMuted()} title="Mute (M)">
+        <button className="tgl" onClick={() => s.toggleMuted()} title="Mute (M)" aria-label={s.muted ? 'Unmute sound' : 'Mute sound'}>
           {s.muted ? '🔇' : '🔊'}
         </button>
-        <button className="tgl" onClick={() => s.setOverlay(s.overlay === 'progress' ? 'none' : 'progress')} title="Progress & badges">
+        <button
+          className={`tgl ${s.overlay === 'progress' ? 'active' : ''}`}
+          onClick={() => s.setOverlay(s.overlay === 'progress' ? 'none' : 'progress')}
+          title="Progress & badges"
+          aria-label="Progress and badges"
+        >
           🏆 {s.achievements.length}/{Object.keys(ACHIEVEMENTS).length}
         </button>
-        <button className="tgl" onClick={() => s.setOverlay(s.overlay === 'help' ? 'none' : 'help')}>
+        <button
+          className={`tgl ${s.overlay === 'help' ? 'active' : ''}`}
+          onClick={() => s.setOverlay(s.overlay === 'help' ? 'none' : 'help')}
+          aria-label="Help"
+        >
           ?
         </button>
       </div>
